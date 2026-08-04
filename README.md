@@ -8,7 +8,9 @@ A project for building a resilient, event-driven payment processing system with 
 ## Current Status
 - Spring Boot Application initialized
 - Health endpoint available at '/actuator/health'
-- Baseline application test configured
+- Payment lifecycle defined with 'CREATED', 'PROCESSING', 'SUCCEEDED', and 'FAILED'
+- Invalid payment state transitions are rejected
+- Payment domain behavior is covered by unit tests
 
 ## Tech Stack
 - Java 17
