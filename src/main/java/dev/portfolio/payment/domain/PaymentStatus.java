@@ -1,4 +1,9 @@
 package dev.portfolio.payment.domain;
 
-public class PaymentStatus {
+public enum PaymentStatus {
+    CREATED,
+    PROCESSING,
+    SUCCEEDED,
+    FAILED
+
 }
