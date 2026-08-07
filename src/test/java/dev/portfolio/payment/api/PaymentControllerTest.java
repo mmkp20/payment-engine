@@ -1,6 +1,7 @@
 package dev.portfolio.payment.api;
 
 import dev.portfolio.payment.application.PaymentService;
+import dev.portfolio.payment.infrastructure.persistence.InMemoryIdempotencyRepository;
 import dev.portfolio.payment.infrastructure.persistence.InMemoryPaymentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,8 +11,7 @@ import org.springframework.http.MediaType;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 public class PaymentControllerTest {
 
@@ -20,7 +20,8 @@ public class PaymentControllerTest {
     @BeforeEach
     void setUp() {
         InMemoryPaymentRepository paymentRepository = new InMemoryPaymentRepository();
-        PaymentService paymentService = new PaymentService(paymentRepository);
+        InMemoryIdempotencyRepository idempotencyRepository = new InMemoryIdempotencyRepository();
+        PaymentService paymentService = new PaymentService(paymentRepository, idempotencyRepository);
         PaymentController paymentController = new PaymentController(paymentService);
 
         mockMvc = MockMvcBuilders.standaloneSetup(paymentController)
@@ -30,6 +31,7 @@ public class PaymentControllerTest {
     @Test
     void validRequestCreatesPayment() throws Exception {
         mockMvc.perform(post("/payments")
+                .header("Idempotency-Key", "request-1")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
@@ -38,7 +40,7 @@ public class PaymentControllerTest {
                         }
                         """))
                 .andExpect(status().isCreated())
-                 .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.id").isNotEmpty())
                 .andExpect(jsonPath("$.amount").value(10.99))
                 .andExpect(jsonPath("$.currency").value("USD"))
                 .andExpect(jsonPath("$.status").value("CREATED"));
@@ -47,6 +49,7 @@ public class PaymentControllerTest {
     @Test
     void lowercaseCurrencyReturnBadRequest() throws Exception {
         mockMvc.perform(post("/payments")
+                        .header("Idempotency-Key", "request-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                         {
@@ -71,4 +74,57 @@ public class PaymentControllerTest {
                 ));
     }
 
+    @Test
+    void repeatedRequestReturnsSamePayment() throws Exception{
+        String requestBody = """
+                        {
+                        "amount": 10.99,
+                        "currency": "USD"
+                        }
+                        """;
+
+        String firstResponse = mockMvc.perform(post("/payments")
+                .header("Idempotency-Key", "request-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        mockMvc.perform(post("/payments")
+        .header("Idempotency-Key", "request-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+                .andExpect(status().isCreated())
+                .andExpect(content().json(firstResponse));
+    }
+
+    @Test
+    void reusedKeyWithDifferentPaymentReturnsConflict() throws Exception{
+        mockMvc.perform(post("/payments")
+                .header("Idempotency-Key", "conflicting-request")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                        "amount": 10.99,
+                        "currency": "USD"
+                        }
+                        """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/payments")
+                        .header("Idempotency-Key", "conflicting-request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                "amount": 20.00,
+                                "currency": "USD"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"))
+                .andExpect(jsonPath("$.message").value("Idempotency key was already used with "+
+                        "different payment details: conflicting-request"));
+    }
 }

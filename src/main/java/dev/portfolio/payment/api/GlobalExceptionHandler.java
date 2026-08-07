@@ -1,5 +1,6 @@
 package dev.portfolio.payment.api;
 
+import dev.portfolio.payment.application.IdempotencyConflictException;
 import dev.portfolio.payment.application.PaymentNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,5 +27,11 @@ public class GlobalExceptionHandler {
 
         ApiError error = new ApiError("INVALID_REQUEST", message);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiError> handleIdempotencyConflict(IdempotencyConflictException ex) {
+        ApiError error = new ApiError("IDEMPOTENCY_CONFLICT", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 }

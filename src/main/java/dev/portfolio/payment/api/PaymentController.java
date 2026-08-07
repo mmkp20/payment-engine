@@ -1,6 +1,7 @@
 package dev.portfolio.payment.api;
 
 import dev.portfolio.payment.application.PaymentService;
+import dev.portfolio.payment.domain.IdempotencyKey;
 import dev.portfolio.payment.domain.Money;
 import dev.portfolio.payment.domain.Payment;
 import jakarta.validation.Valid;
@@ -21,11 +22,12 @@ public class PaymentController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public PaymentResponse createPayment(@Valid @RequestBody CreatePaymentRequest request) {
+    public PaymentResponse createPayment(@RequestHeader("Idempotency-key") String idempotencyKeyValue,
+                                        @Valid @RequestBody CreatePaymentRequest request) {
         Money money = new Money(request.amount(),
                 Currency.getInstance(request.currency()));
 
-        Payment payment = paymentService.createPayment(money);
+        Payment payment = paymentService.createPayment(new IdempotencyKey(idempotencyKeyValue),money);
         return PaymentResponse.from(payment);
     }
 

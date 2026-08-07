@@ -1,8 +1,6 @@
 package dev.portfolio.payment.application;
 
-import dev.portfolio.payment.domain.Money;
-import dev.portfolio.payment.domain.Payment;
-import dev.portfolio.payment.domain.PaymentRepository;
+import dev.portfolio.payment.domain.*;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -12,18 +10,35 @@ import java.util.UUID;
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
+    private final IdempotencyRepository idempotencyRepository;
 
-    public PaymentService(PaymentRepository paymentRepository) {
+    public PaymentService(PaymentRepository paymentRepository,
+                          IdempotencyRepository idempotencyRepository) {
         this.paymentRepository = paymentRepository;
+        this.idempotencyRepository = idempotencyRepository;
     }
 
-    public Payment createPayment(Money money){
+    public Payment createPayment(IdempotencyKey idempotencyKey, Money money){
+        Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
         Objects.requireNonNull(money, "money must not be null");
-        Payment payment = Payment.create(
-                UUID.randomUUID(),
-                money
-        );
-        return paymentRepository.save(payment);
+
+        return idempotencyRepository.findByKey(idempotencyKey)
+                .map(existingPayment -> {
+                    if(!existingPayment.getMoney().equals(money)){
+                        throw new IdempotencyConflictException(idempotencyKey);
+                    }
+                    return existingPayment;
+                }).orElseGet(() -> {
+                    Payment payment = Payment.create(
+                        UUID.randomUUID(),
+                        money
+                    );
+
+                    paymentRepository.save(payment);
+                    idempotencyRepository.save(idempotencyKey, payment);
+
+                    return payment;
+                });
     }
 
     public Payment getPayment(UUID paymentId){
