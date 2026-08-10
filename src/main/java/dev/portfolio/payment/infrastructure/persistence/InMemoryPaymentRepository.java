@@ -2,6 +2,7 @@ package dev.portfolio.payment.infrastructure.persistence;
 
 import dev.portfolio.payment.domain.Payment;
 import dev.portfolio.payment.domain.PaymentRepository;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 import java.util.Map;
@@ -11,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 
 @Repository
+@Profile("in-memory")
 public class InMemoryPaymentRepository implements PaymentRepository{
 
     private final Map<UUID, Payment> payments = new ConcurrentHashMap<>();
