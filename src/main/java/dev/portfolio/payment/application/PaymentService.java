@@ -2,6 +2,7 @@ package dev.portfolio.payment.application;
 
 import dev.portfolio.payment.domain.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -18,6 +19,7 @@ public class PaymentService {
         this.idempotencyRepository = idempotencyRepository;
     }
 
+    @Transactional
     public Payment createPayment(IdempotencyKey idempotencyKey, Money money){
         Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
         Objects.requireNonNull(money, "money must not be null");
