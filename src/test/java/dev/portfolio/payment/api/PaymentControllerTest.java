@@ -21,7 +21,11 @@ public class PaymentControllerTest {
     void setUp() {
         InMemoryPaymentRepository paymentRepository = new InMemoryPaymentRepository();
         InMemoryIdempotencyRepository idempotencyRepository = new InMemoryIdempotencyRepository();
-        PaymentService paymentService = new PaymentService(paymentRepository, idempotencyRepository);
+        PaymentService paymentService = new PaymentService(paymentRepository, idempotencyRepository,
+                event -> {
+                    // No-op writer for controller tests
+                }
+        );
         PaymentController paymentController = new PaymentController(paymentService);
 
         mockMvc = MockMvcBuilders.standaloneSetup(paymentController)
