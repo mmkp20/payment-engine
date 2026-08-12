@@ -1,10 +1,7 @@
 package dev.portfolio.payment.infrastructure.persistence;
 
-import dev.portfolio.payment.domain.IdempotencyKey;
-import dev.portfolio.payment.domain.IdempotencyRepository;
-import dev.portfolio.payment.domain.Money;
-import dev.portfolio.payment.domain.Payment;
-import dev.portfolio.payment.domain.PaymentRepository;
+import dev.portfolio.payment.application.PaymentService;
+import dev.portfolio.payment.domain.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +32,12 @@ class PostgreSQLRepositoryIntegrationTest {
 
     @Autowired
     private IdempotencyRepository idempotencyRepository;
+
+    @Autowired
+    private SpringDataOutboxRepository outboxRepository;
+
+    @Autowired
+    private PaymentService paymentService;
 
     @Test
     void paymentIsPersistedAndRetrieved() {
@@ -88,5 +91,83 @@ class PostgreSQLRepositoryIntegrationTest {
                 .isEqualTo(paymentId);
         assertThat(foundPayment.getMoney())
                 .isEqualTo(payment.getMoney());
+    }
+
+    @Test
+    void outboxEventIsPersistedAndRetrieved() {
+        UUID paymentId = UUID.randomUUID();
+
+        Payment payment = Payment.create(
+                paymentId,
+                new Money(
+                        new BigDecimal("30.00"),
+                        Currency.getInstance("USD")
+                )
+        );
+
+        paymentRepository.save(payment);
+
+        UUID eventId = UUID.randomUUID();
+
+        OutboxEventEntity event = new OutboxEventEntity(
+                eventId,
+                paymentId,
+                "PAYMENT_CREATED",
+                """
+                {
+                  "paymentId": "%s",
+                  "amount": 30.00,
+                  "currency": "USD"
+                }
+                """.formatted(paymentId)
+        );
+
+        outboxRepository.save(event);
+
+        OutboxEventEntity foundEvent = outboxRepository
+                .findById(eventId)
+                .orElseThrow();
+
+        assertThat(foundEvent.getAggregateId())
+                .isEqualTo(paymentId);
+        assertThat(foundEvent.getEventType())
+                .isEqualTo("PAYMENT_CREATED");
+        assertThat(foundEvent.getStatus())
+                .isEqualTo(OutboxStatus.PENDING);
+        assertThat(foundEvent.getAttempts()).isZero();
+        assertThat(foundEvent.getPublishedAt()).isNull();
+    }
+
+    @Test
+    void paymentCreationPersistsTransactionalOutboxEvent() {
+        IdempotencyKey key =
+                new IdempotencyKey("transactional-outbox-request");
+
+        Payment payment = paymentService.createPayment(
+                key,
+                new Money(
+                        new BigDecimal("65.00"),
+                        Currency.getInstance("USD")
+                )
+        );
+
+        assertThat(paymentRepository.findById(payment.getId()))
+                .isPresent();
+
+        assertThat(idempotencyRepository.findByKey(key))
+                .isPresent();
+
+        var outboxEvents = outboxRepository
+                .findAllByAggregateId(payment.getId());
+
+        assertThat(outboxEvents).hasSize(1);
+
+        OutboxEventEntity event = outboxEvents.get(0);
+
+        assertThat(event.getEventType()).isEqualTo("PAYMENT_CREATED");
+        assertThat(event.getStatus()).isEqualTo(OutboxStatus.PENDING);
+        assertThat(event.getPayload()).contains(payment.getId().toString())
+                                        .contains("\"amount\": 65.00")
+                                        .contains("\"currency\": \"USD\"");
     }
 }

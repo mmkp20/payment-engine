@@ -12,11 +12,12 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final IdempotencyRepository idempotencyRepository;
+    private final OutboxEventWriter outboxEventWriter;
 
-    public PaymentService(PaymentRepository paymentRepository,
-                          IdempotencyRepository idempotencyRepository) {
+    public PaymentService(PaymentRepository paymentRepository, IdempotencyRepository idempotencyRepository, OutboxEventWriter outboxEventWriter) {
         this.paymentRepository = paymentRepository;
         this.idempotencyRepository = idempotencyRepository;
+        this.outboxEventWriter = outboxEventWriter;
     }
 
     @Transactional
@@ -32,14 +33,23 @@ public class PaymentService {
                     return existingPayment;
                 }).orElseGet(() -> {
                     Payment payment = Payment.create(
-                        UUID.randomUUID(),
-                        money
+                            UUID.randomUUID(),
+                            money
                     );
 
-                    paymentRepository.save(payment);
-                    idempotencyRepository.save(idempotencyKey, payment);
+                    Payment savedPayment =
+                            paymentRepository.save(payment);
 
-                    return payment;
+                    idempotencyRepository.save(
+                            idempotencyKey,
+                            savedPayment
+                    );
+
+                    outboxEventWriter.save(
+                            PaymentCreatedEvent.from(savedPayment)
+                    );
+
+                    return savedPayment;
                 });
     }
 
