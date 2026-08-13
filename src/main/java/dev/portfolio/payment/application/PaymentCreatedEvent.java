@@ -11,8 +11,7 @@ public record PaymentCreatedEvent(
         UUID paymentId,
         BigDecimal amount,
         String currency,
-        Instant occurredAt
-) {
+        Instant occurredAt ) {
     public static PaymentCreatedEvent from(Payment payment) {
         return new PaymentCreatedEvent(
                 UUID.randomUUID(),

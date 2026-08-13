@@ -16,5 +16,13 @@ services:
       timeout: 5s
       retries: 10
 
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.7.1
+    container_name: payment-engine-sqs
+    ports:
+      - "9324:9324"
+    volumes:
+      - ./docker/elasticmq.conf:/opt/elasticmq.conf:ro
+
 volumes:
   payment-postgres-data:

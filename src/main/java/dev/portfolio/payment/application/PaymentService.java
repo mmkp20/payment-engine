@@ -37,17 +37,9 @@ public class PaymentService {
                             money
                     );
 
-                    Payment savedPayment =
-                            paymentRepository.save(payment);
-
-                    idempotencyRepository.save(
-                            idempotencyKey,
-                            savedPayment
-                    );
-
-                    outboxEventWriter.save(
-                            PaymentCreatedEvent.from(savedPayment)
-                    );
+                    Payment savedPayment = paymentRepository.save(payment);
+                    idempotencyRepository.save(idempotencyKey, savedPayment);
+                    outboxEventWriter.save( PaymentCreatedEvent.from(savedPayment));
 
                     return savedPayment;
                 });

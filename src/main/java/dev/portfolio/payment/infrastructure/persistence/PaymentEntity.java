@@ -14,11 +14,9 @@ public class PaymentEntity {
     @Id
     private UUID id;
 
-    @Column(
-            nullable = false,
+    @Column(nullable = false,
             precision = 19,
-            scale = 2
-    )
+            scale = 2)
     private BigDecimal amount;
 
     @Column(nullable = false, length = 3)
@@ -35,11 +33,9 @@ public class PaymentEntity {
     @Column(nullable = false)
     private Long version;
 
-    @Column(
-            name = "created_at",
+    @Column(name = "created_at",
             nullable = false,
-            updatable = false
-    )
+            updatable = false)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
@@ -53,8 +49,7 @@ public class PaymentEntity {
             UUID id,
             BigDecimal amount,
             String currency,
-            PaymentStatus status
-    ) {
+            PaymentStatus status) {
         this.id = id;
         this.amount = amount;
         this.currency = currency;

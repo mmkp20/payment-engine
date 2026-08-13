@@ -9,18 +9,9 @@ public class Payment {
     private PaymentStatus status;
 
     private Payment(UUID id, Money money, PaymentStatus status) {
-        this.id = Objects.requireNonNull(
-                id,
-                "id must not be null"
-        );
-        this.money = Objects.requireNonNull(
-                money,
-                "money must not be null"
-        );
-        this.status = Objects.requireNonNull(
-                status,
-                "status must not be null"
-        );
+        this.id = Objects.requireNonNull(id, "id must not be null");
+        this.money = Objects.requireNonNull(money,"money must not be null");
+        this.status = Objects.requireNonNull(status,"status must not be null");
     }
 
     public UUID getId() {

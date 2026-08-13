@@ -9,9 +9,7 @@ public class JpaOutboxEventWriter implements OutboxEventWriter {
 
     private final SpringDataOutboxRepository repository;
 
-    public JpaOutboxEventWriter(
-            SpringDataOutboxRepository repository
-    ) {
+    public JpaOutboxEventWriter(SpringDataOutboxRepository repository) {
         this.repository = repository;
     }
 
