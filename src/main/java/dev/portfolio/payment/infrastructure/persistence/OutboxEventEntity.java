@@ -30,11 +30,7 @@ public class OutboxEventEntity {
     @Column(nullable = false)
     private int attempts;
 
-    @Column(
-            name = "created_at",
-            nullable = false,
-            updatable = false
-    )
+    @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     @Column(name = "published_at")
@@ -89,5 +85,26 @@ public class OutboxEventEntity {
 
     public Instant getPublishedAt() {
         return publishedAt;
+    }
+
+    public void markPublished() {
+        if (status != OutboxStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Only PENDING events can be published"
+            );
+        }
+
+        status = OutboxStatus.PUBLISHED;
+        publishedAt = Instant.now();
+    }
+
+    public void recordFailedAttempt() {
+        if (status != OutboxStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Only PENDING events can record failures"
+            );
+        }
+
+        attempts++;
     }
 }

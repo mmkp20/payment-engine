@@ -8,8 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public class JpaIdempotencyRepositoryAdapter
-        implements IdempotencyRepository {
+public class JpaIdempotencyRepositoryAdapter implements IdempotencyRepository {
 
     private final SpringDataIdempotencyRepository repository;
     private final SpringDataPaymentRepository paymentRepository;
@@ -30,24 +29,14 @@ public class JpaIdempotencyRepositoryAdapter
     }
 
     @Override
-    public void save(
-            IdempotencyKey key,
-            Payment payment
-    ) {
-        PaymentEntity paymentEntity =
-                paymentRepository.findById(payment.getId())
-                        .orElseThrow(() ->
-                                new IllegalStateException(
+    public void save(IdempotencyKey key, Payment payment) {
+        PaymentEntity paymentEntity = paymentRepository.findById(payment.getId())
+                        .orElseThrow(() ->new IllegalStateException(
                                         "Payment must be saved before " +
-                                                "its idempotency record"
-                                )
+                                                "its idempotency record")
                         );
 
-        IdempotencyRecordEntity record =
-                new IdempotencyRecordEntity(
-                        key.value(),
-                        paymentEntity
-                );
+        IdempotencyRecordEntity record = new IdempotencyRecordEntity(key.value(),paymentEntity);
 
         repository.save(record);
     }

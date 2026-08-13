@@ -7,8 +7,7 @@ import java.util.Currency;
 
 final class PaymentEntityMapper {
 
-    private PaymentEntityMapper() {
-    }
+    private PaymentEntityMapper() { }
 
     static PaymentEntity fromDomain(Payment payment) {
         return new PaymentEntity(

@@ -9,36 +9,27 @@ import java.time.Instant;
 public class IdempotencyRecordEntity {
 
     @Id
-    @Column(
-            name = "idempotency_key",
+    @Column(name = "idempotency_key",
             nullable = false,
-            length = 255
-    )
+            length = 255)
     private String idempotencyKey;
 
     @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(
-            name = "payment_id",
+    @JoinColumn(name = "payment_id",
             nullable = false,
-            unique = true
-    )
+            unique = true)
     private PaymentEntity payment;
 
-    @Column(
-            name = "created_at",
+    @Column(name = "created_at",
             nullable = false,
-            updatable = false
-    )
+            updatable = false)
     private Instant createdAt;
 
     protected IdempotencyRecordEntity() {
         // Required by JPA
     }
 
-    public IdempotencyRecordEntity(
-            String idempotencyKey,
-            PaymentEntity payment
-    ) {
+    public IdempotencyRecordEntity(String idempotencyKey,PaymentEntity payment) {
         this.idempotencyKey = idempotencyKey;
         this.payment = payment;
         this.createdAt = Instant.now();
