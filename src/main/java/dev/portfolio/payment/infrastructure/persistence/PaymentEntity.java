@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -95,5 +96,12 @@ public class PaymentEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void updateStatus(PaymentStatus status) {
+        this.status = Objects.requireNonNull(
+                status,
+                "status must not be null"
+        );
     }
 }

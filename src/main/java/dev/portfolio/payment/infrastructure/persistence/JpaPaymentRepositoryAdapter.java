@@ -19,10 +19,24 @@ public class JpaPaymentRepositoryAdapter
 
     @Override
     public Payment save(Payment payment) {
-        PaymentEntity entity = PaymentEntityMapper.fromDomain(payment);
-        PaymentEntity savedEntity = repository.save(entity);
+        return repository.findById(payment.getId())
+                .map(existingEntity -> {
+                    existingEntity.updateStatus(payment.getStatus());
 
-        return PaymentEntityMapper.toDomain(savedEntity);
+                    PaymentEntity savedEntity =
+                            repository.save(existingEntity);
+
+                    return PaymentEntityMapper.toDomain(savedEntity);
+                })
+                .orElseGet(() -> {
+                    PaymentEntity newEntity =
+                            PaymentEntityMapper.fromDomain(payment);
+
+                    PaymentEntity savedEntity =
+                            repository.save(newEntity);
+
+                    return PaymentEntityMapper.toDomain(savedEntity);
+                });
     }
 
     @Override
