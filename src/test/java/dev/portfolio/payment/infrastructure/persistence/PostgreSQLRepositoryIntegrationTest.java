@@ -1,7 +1,9 @@
 package dev.portfolio.payment.infrastructure.persistence;
 
+import dev.portfolio.payment.application.PaymentProcessor;
 import dev.portfolio.payment.application.PaymentService;
 import dev.portfolio.payment.domain.*;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +40,12 @@ class PostgreSQLRepositoryIntegrationTest {
 
     @Autowired
     private PaymentService paymentService;
+
+    @Autowired
+    private PaymentProcessor paymentProcessor;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Test
     void paymentIsPersistedAndRetrieved() {
@@ -169,5 +177,36 @@ class PostgreSQLRepositoryIntegrationTest {
         assertThat(event.getPayload()).contains(payment.getId().toString())
                                         .contains("\"amount\": 65.00")
                                         .contains("\"currency\": \"USD\"");
+    }
+
+    @Test
+    void existingPaymentStatusIsUpdatedInPostgreSQL() {
+        UUID paymentId = UUID.randomUUID();
+
+        Payment payment = Payment.create(
+                paymentId,
+                new Money(
+                        new BigDecimal("80.00"),
+                        Currency.getInstance("USD")
+                )
+        );
+
+        paymentRepository.save(payment);
+
+        Payment processedPayment =
+                paymentProcessor.processPayment(paymentId);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        Payment reloadedPayment = paymentRepository
+                .findById(paymentId)
+                .orElseThrow();
+
+        assertThat(processedPayment.getStatus())
+                .isEqualTo(PaymentStatus.SUCCEEDED);
+
+        assertThat(reloadedPayment.getStatus())
+                .isEqualTo(PaymentStatus.SUCCEEDED);
     }
 }
