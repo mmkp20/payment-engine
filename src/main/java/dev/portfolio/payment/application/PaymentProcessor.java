@@ -13,14 +13,13 @@ public class PaymentProcessor {
 
     private final PaymentRepository paymentRepository;
 
-    public PaymentProcessor(
-            PaymentRepository paymentRepository
-    ) {
+    public PaymentProcessor(PaymentRepository paymentRepository) {
         this.paymentRepository = paymentRepository;
     }
 
     @Transactional
     public Payment processPayment(UUID paymentId) {
+
         Payment payment = paymentRepository
                 .findById(paymentId)
                 .orElseThrow(() ->
@@ -42,6 +41,33 @@ public class PaymentProcessor {
         }
 
         payment.markSucceeded();
+
+        return paymentRepository.save(payment);
+    }
+
+    @Transactional
+    public Payment failPayment(UUID paymentId) {
+
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(
+                        () -> new PaymentNotFoundException(paymentId)
+                );
+
+        if (payment.getStatus() == PaymentStatus.FAILED) {
+            return payment;
+        }
+
+        if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
+            throw new IllegalStateException(
+                    "Succeeded payment cannot be marked as failed"
+            );
+        }
+
+        if (payment.getStatus() == PaymentStatus.CREATED) {
+            payment.startProcessing();
+        }
+
+        payment.markFailed();
 
         return paymentRepository.save(payment);
     }
