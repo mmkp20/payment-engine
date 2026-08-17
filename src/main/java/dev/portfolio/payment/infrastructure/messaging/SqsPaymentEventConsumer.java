@@ -13,6 +13,7 @@ import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import tools.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
 
 @Component
 @ConditionalOnProperty(
@@ -21,71 +22,97 @@ import tools.jackson.databind.ObjectMapper;
 )
 public class SqsPaymentEventConsumer {
 
-    private static final Logger log =
-            LoggerFactory.getLogger(SqsPaymentEventConsumer.class);
+    private static final Logger log = LoggerFactory.getLogger(SqsPaymentEventConsumer.class);
 
     private final SqsClient sqsClient;
     private final ObjectMapper objectMapper;
     private final PaymentProcessor paymentProcessor;
     private final String queueUrl;
+    private final int maxReceiveCount;
 
     public SqsPaymentEventConsumer(
             SqsClient sqsClient,
             ObjectMapper objectMapper,
             PaymentProcessor paymentProcessor,
-            @Value("${app.sqs.queue-url}") String queueUrl
-    ) {
+            @Value("${app.sqs.queue-url}") String queueUrl,
+            @Value("${app.sqs.max-receive-count:3}")int maxReceiveCount) {
+
         this.sqsClient = sqsClient;
         this.objectMapper = objectMapper;
         this.paymentProcessor = paymentProcessor;
         this.queueUrl = queueUrl;
+        this.maxReceiveCount = maxReceiveCount;
     }
 
-    @Scheduled(
-            fixedDelayString =
-                    "${app.sqs.consumer-poll-delay-ms:1000}"
-    )
+    @Scheduled(fixedDelayString ="${app.sqs.consumer-poll-delay-ms:1000}")
     public void pollMessages() {
-        ReceiveMessageRequest request =
-                ReceiveMessageRequest.builder()
-                        .queueUrl(queueUrl)
-                        .maxNumberOfMessages(10)
-                        .waitTimeSeconds(1)
-                        .build();
 
-        for (Message message :
-                sqsClient.receiveMessage(request).messages()) {
+        ReceiveMessageRequest request = ReceiveMessageRequest.builder()
+                                        .queueUrl(queueUrl)
+                                        .maxNumberOfMessages(10)
+                                        .waitTimeSeconds(1)
+                                        .messageSystemAttributeNames(
+                                                MessageSystemAttributeName
+                                                        .APPROXIMATE_RECEIVE_COUNT
+                                        )
+                                        .build();
+
+        for (Message message : sqsClient.receiveMessage(request).messages()) {
             processMessage(message);
         }
     }
 
     private void processMessage(Message message) {
+        PaymentCreatedEvent event = null;
+        int receiveCount = getReceiveCount(message);
+
         try {
-            PaymentCreatedEvent event =
-                    objectMapper.readValue(
-                            message.body(),
-                            PaymentCreatedEvent.class
-                    );
-
+            event = objectMapper.readValue(message.body(), PaymentCreatedEvent.class);
             paymentProcessor.processPayment(event.paymentId());
+            sqsClient.deleteMessage(DeleteMessageRequest.builder()
+                                    .queueUrl(queueUrl)
+                                    .receiptHandle(message.receiptHandle())
+                                    .build());
 
-            sqsClient.deleteMessage(
-                    DeleteMessageRequest.builder()
-                            .queueUrl(queueUrl)
-                            .receiptHandle(message.receiptHandle())
-                            .build()
-            );
+            log.info("Processed payment event: paymentId={}",event.paymentId());
 
-            log.info(
-                    "Processed payment event: paymentId={}",
-                    event.paymentId()
-            );
         } catch (Exception exception) {
-            log.error(
-                    "Failed to process SQS message: messageId={}",
+
+            if (event != null && receiveCount >= maxReceiveCount) {
+                markPaymentFailed(event);
+            }
+
+            log.error("Failed to process SQS message: " + "messageId={}, attempt={}/{}",
                     message.messageId(),
-                    exception
-            );
+                    receiveCount,
+                    maxReceiveCount,
+                    exception);
+        }
+    }
+
+    private int getReceiveCount(Message message) {
+
+        String receiveCount = message.attributes().get(MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT);
+
+        if (receiveCount == null) {
+            return 1;
+        }
+
+        try {
+            return Integer.parseInt(receiveCount);
+        } catch (NumberFormatException exception) {
+            return 1;
+        }
+    }
+
+    private void markPaymentFailed(PaymentCreatedEvent event) {
+        try {
+            paymentProcessor.failPayment(event.paymentId());
+            log.warn("Payment marked as failed after retries: " + "paymentId={}", event.paymentId());
+
+        } catch (Exception exception) {
+            log.error("Could not mark payment as failed: " + "paymentId={}", event.paymentId(), exception);
+
         }
     }
 }

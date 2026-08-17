@@ -65,12 +65,9 @@ class PostgreSQLRepositoryIntegrationTest {
                 .findById(paymentId)
                 .orElseThrow();
 
-        assertThat(foundPayment.getId())
-                .isEqualTo(paymentId);
-        assertThat(foundPayment.getMoney())
-                .isEqualTo(payment.getMoney());
-        assertThat(foundPayment.getStatus())
-                .isEqualTo(payment.getStatus());
+        assertThat(foundPayment.getId()).isEqualTo(paymentId);
+        assertThat(foundPayment.getMoney()).isEqualTo(payment.getMoney());
+        assertThat(foundPayment.getStatus()).isEqualTo(payment.getStatus());
     }
 
     @Test
@@ -79,26 +76,17 @@ class PostgreSQLRepositoryIntegrationTest {
 
         Payment payment = Payment.create(
                 paymentId,
-                new Money(
-                        new BigDecimal("75.00"),
-                        Currency.getInstance("USD")
-                )
+                new Money(new BigDecimal("75.00"), Currency.getInstance("USD"))
         );
 
-        IdempotencyKey key =
-                new IdempotencyKey("integration-request-1");
+        IdempotencyKey key = new IdempotencyKey("integration-request-1");
 
         paymentRepository.save(payment);
         idempotencyRepository.save(key, payment);
+        Payment foundPayment = idempotencyRepository.findByKey(key).orElseThrow();
 
-        Payment foundPayment = idempotencyRepository
-                .findByKey(key)
-                .orElseThrow();
-
-        assertThat(foundPayment.getId())
-                .isEqualTo(paymentId);
-        assertThat(foundPayment.getMoney())
-                .isEqualTo(payment.getMoney());
+        assertThat(foundPayment.getId()).isEqualTo(paymentId);
+        assertThat(foundPayment.getMoney()).isEqualTo(payment.getMoney());
     }
 
     @Test
@@ -107,14 +95,9 @@ class PostgreSQLRepositoryIntegrationTest {
 
         Payment payment = Payment.create(
                 paymentId,
-                new Money(
-                        new BigDecimal("30.00"),
-                        Currency.getInstance("USD")
-                )
-        );
+                new Money(new BigDecimal("30.00"), Currency.getInstance("USD")));
 
         paymentRepository.save(payment);
-
         UUID eventId = UUID.randomUUID();
 
         OutboxEventEntity event = new OutboxEventEntity(
@@ -132,44 +115,28 @@ class PostgreSQLRepositoryIntegrationTest {
 
         outboxRepository.save(event);
 
-        OutboxEventEntity foundEvent = outboxRepository
-                .findById(eventId)
-                .orElseThrow();
+        OutboxEventEntity foundEvent = outboxRepository.findById(eventId).orElseThrow();
 
-        assertThat(foundEvent.getAggregateId())
-                .isEqualTo(paymentId);
-        assertThat(foundEvent.getEventType())
-                .isEqualTo("PAYMENT_CREATED");
-        assertThat(foundEvent.getStatus())
-                .isEqualTo(OutboxStatus.PENDING);
+        assertThat(foundEvent.getAggregateId()).isEqualTo(paymentId);
+        assertThat(foundEvent.getEventType()).isEqualTo("PAYMENT_CREATED");
+        assertThat(foundEvent.getStatus()).isEqualTo(OutboxStatus.PENDING);
         assertThat(foundEvent.getAttempts()).isZero();
         assertThat(foundEvent.getPublishedAt()).isNull();
     }
 
     @Test
     void paymentCreationPersistsTransactionalOutboxEvent() {
-        IdempotencyKey key =
-                new IdempotencyKey("transactional-outbox-request");
+        IdempotencyKey key = new IdempotencyKey("transactional-outbox-request");
 
-        Payment payment = paymentService.createPayment(
-                key,
+        Payment payment = paymentService.createPayment(key,
                 new Money(
-                        new BigDecimal("65.00"),
-                        Currency.getInstance("USD")
-                )
-        );
+                        new BigDecimal("65.00"), Currency.getInstance("USD")));
 
-        assertThat(paymentRepository.findById(payment.getId()))
-                .isPresent();
+        assertThat(paymentRepository.findById(payment.getId())).isPresent();
+        assertThat(idempotencyRepository.findByKey(key)).isPresent();
 
-        assertThat(idempotencyRepository.findByKey(key))
-                .isPresent();
-
-        var outboxEvents = outboxRepository
-                .findAllByAggregateId(payment.getId());
-
+        var outboxEvents = outboxRepository.findAllByAggregateId(payment.getId());
         assertThat(outboxEvents).hasSize(1);
-
         OutboxEventEntity event = outboxEvents.get(0);
 
         assertThat(event.getEventType()).isEqualTo("PAYMENT_CREATED");
@@ -192,10 +159,29 @@ class PostgreSQLRepositoryIntegrationTest {
         );
 
         paymentRepository.save(payment);
+        Payment processedPayment = paymentProcessor.processPayment(paymentId);
+        entityManager.flush();
+        entityManager.clear();
 
-        Payment processedPayment =
-                paymentProcessor.processPayment(paymentId);
+        Payment reloadedPayment = paymentRepository.findById(paymentId).orElseThrow();
+        assertThat(processedPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(reloadedPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+    }
 
+    @Test
+    void failedPaymentStatusIsUpdatedInPostgreSQL() {
+        UUID paymentId = UUID.randomUUID();
+
+        Payment payment = Payment.create(
+                paymentId,
+                new Money(
+                        new BigDecimal("90.00"),
+                        Currency.getInstance("USD")
+                )
+        );
+
+        paymentRepository.save(payment);
+        Payment failedPayment = paymentProcessor.failPayment(paymentId);
         entityManager.flush();
         entityManager.clear();
 
@@ -203,10 +189,7 @@ class PostgreSQLRepositoryIntegrationTest {
                 .findById(paymentId)
                 .orElseThrow();
 
-        assertThat(processedPayment.getStatus())
-                .isEqualTo(PaymentStatus.SUCCEEDED);
-
-        assertThat(reloadedPayment.getStatus())
-                .isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(failedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(reloadedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
     }
 }

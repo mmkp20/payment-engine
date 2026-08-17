@@ -19,6 +19,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
+import java.util.Map;
 
 class SqsPaymentEventConsumerTest {
 
@@ -40,8 +42,8 @@ class SqsPaymentEventConsumerTest {
                 sqsClient,
                 objectMapper,
                 paymentProcessor,
-                QUEUE_URL
-        );
+                QUEUE_URL,
+                3);
     }
 
     @Test
@@ -131,6 +133,65 @@ class SqsPaymentEventConsumerTest {
         consumer.pollMessages();
 
         verify(paymentProcessor).processPayment(paymentId);
+
+        verify(sqsClient, never()).deleteMessage(
+                any(DeleteMessageRequest.class)
+        );
+
+        verify(paymentProcessor, never())
+                .failPayment(any(UUID.class));
+    }
+
+    @Test
+    void finalFailedAttemptMarksPaymentFailedAndKeepsMessage()
+            throws Exception {
+        UUID paymentId = UUID.randomUUID();
+
+        PaymentCreatedEvent event = new PaymentCreatedEvent(
+                UUID.randomUUID(),
+                paymentId,
+                new BigDecimal("55.00"),
+                "USD",
+                Instant.now()
+        );
+
+        Message message = Message.builder()
+                .messageId("message-3")
+                .receiptHandle("receipt-3")
+                .body("{}")
+                .attributes(
+                        Map.of(
+                                MessageSystemAttributeName
+                                        .APPROXIMATE_RECEIVE_COUNT,
+                                "3"
+                        )
+                )
+                .build();
+
+        when(sqsClient.receiveMessage(
+                any(ReceiveMessageRequest.class)
+        )).thenReturn(
+                ReceiveMessageResponse.builder()
+                        .messages(message)
+                        .build()
+        );
+
+        when(objectMapper.readValue(
+                "{}",
+                PaymentCreatedEvent.class
+        )).thenReturn(event);
+
+        when(paymentProcessor.processPayment(paymentId))
+                .thenThrow(
+                        new IllegalStateException(
+                                "Processing failed"
+                        )
+                );
+
+        consumer.pollMessages();
+
+        verify(paymentProcessor).processPayment(paymentId);
+        verify(paymentProcessor).failPayment(paymentId);
 
         verify(sqsClient, never()).deleteMessage(
                 any(DeleteMessageRequest.class)
