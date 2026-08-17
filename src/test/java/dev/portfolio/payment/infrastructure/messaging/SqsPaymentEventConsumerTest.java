@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 import tools.jackson.databind.ObjectMapper;
+import dev.portfolio.payment.infrastructure.observability.PaymentMetrics;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -31,19 +32,23 @@ class SqsPaymentEventConsumerTest {
     private ObjectMapper objectMapper;
     private PaymentProcessor paymentProcessor;
     private SqsPaymentEventConsumer consumer;
+    private PaymentMetrics paymentMetrics;
 
     @BeforeEach
     void setUp() {
         sqsClient = mock(SqsClient.class);
         objectMapper = mock(ObjectMapper.class);
         paymentProcessor = mock(PaymentProcessor.class);
+        paymentMetrics = mock(PaymentMetrics.class);
 
         consumer = new SqsPaymentEventConsumer(
                 sqsClient,
                 objectMapper,
                 paymentProcessor,
+                paymentMetrics,
                 QUEUE_URL,
-                3);
+                3
+        );
     }
 
     @Test
@@ -90,6 +95,8 @@ class SqsPaymentEventConsumerTest {
                 .isEqualTo(QUEUE_URL);
         assertThat(requestCaptor.getValue().receiptHandle())
                 .isEqualTo("receipt-1");
+
+        verify(paymentMetrics).recordSuccess();
     }
 
     @Test
@@ -140,6 +147,10 @@ class SqsPaymentEventConsumerTest {
 
         verify(paymentProcessor, never())
                 .failPayment(any(UUID.class));
+        verify(paymentMetrics).recordRetry();
+
+        verify(paymentMetrics, never())
+                .recordFinalFailure();
     }
 
     @Test
@@ -192,9 +203,8 @@ class SqsPaymentEventConsumerTest {
 
         verify(paymentProcessor).processPayment(paymentId);
         verify(paymentProcessor).failPayment(paymentId);
-
-        verify(sqsClient, never()).deleteMessage(
-                any(DeleteMessageRequest.class)
-        );
+        verify(sqsClient, never()).deleteMessage(any(DeleteMessageRequest.class));
+        verify(paymentMetrics).recordFinalFailure();
+        verify(paymentMetrics, never()).recordRetry();
     }
 }
