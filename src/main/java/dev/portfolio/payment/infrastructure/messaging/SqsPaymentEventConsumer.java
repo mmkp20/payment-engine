@@ -14,6 +14,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import tools.jackson.databind.ObjectMapper;
 import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
+import dev.portfolio.payment.infrastructure.observability.PaymentMetrics;
 
 @Component
 @ConditionalOnProperty(
@@ -29,11 +30,13 @@ public class SqsPaymentEventConsumer {
     private final PaymentProcessor paymentProcessor;
     private final String queueUrl;
     private final int maxReceiveCount;
+    private final PaymentMetrics paymentMetrics;
 
     public SqsPaymentEventConsumer(
             SqsClient sqsClient,
             ObjectMapper objectMapper,
             PaymentProcessor paymentProcessor,
+            PaymentMetrics paymentMetrics,
             @Value("${app.sqs.queue-url}") String queueUrl,
             @Value("${app.sqs.max-receive-count:3}")int maxReceiveCount) {
 
@@ -42,6 +45,7 @@ public class SqsPaymentEventConsumer {
         this.paymentProcessor = paymentProcessor;
         this.queueUrl = queueUrl;
         this.maxReceiveCount = maxReceiveCount;
+        this.paymentMetrics = paymentMetrics;
     }
 
     @Scheduled(fixedDelayString ="${app.sqs.consumer-poll-delay-ms:1000}")
@@ -64,29 +68,50 @@ public class SqsPaymentEventConsumer {
 
     private void processMessage(Message message) {
         PaymentCreatedEvent event = null;
+        boolean processingCompleted = false;
         int receiveCount = getReceiveCount(message);
 
         try {
-            event = objectMapper.readValue(message.body(), PaymentCreatedEvent.class);
+            event = objectMapper.readValue(
+                    message.body(),
+                    PaymentCreatedEvent.class
+            );
+
             paymentProcessor.processPayment(event.paymentId());
-            sqsClient.deleteMessage(DeleteMessageRequest.builder()
-                                    .queueUrl(queueUrl)
-                                    .receiptHandle(message.receiptHandle())
-                                    .build());
+            processingCompleted = true;
 
-            log.info("Processed payment event: paymentId={}",event.paymentId());
+            sqsClient.deleteMessage(
+                    DeleteMessageRequest.builder()
+                            .queueUrl(queueUrl)
+                            .receiptHandle(message.receiptHandle())
+                            .build()
+            );
 
+            paymentMetrics.recordSuccess();
+
+            log.info(
+                    "Processed payment event: paymentId={}",
+                    event.paymentId()
+            );
         } catch (Exception exception) {
+            if (receiveCount >= maxReceiveCount) {
+                if (event != null && !processingCompleted) {
+                    markPaymentFailed(event);
+                }
 
-            if (event != null && receiveCount >= maxReceiveCount) {
-                markPaymentFailed(event);
+                paymentMetrics.recordFinalFailure();
+            } else {
+                paymentMetrics.recordRetry();
             }
 
-            log.error("Failed to process SQS message: " + "messageId={}, attempt={}/{}",
+            log.error(
+                    "Failed to process SQS message: " +
+                            "messageId={}, attempt={}/{}",
                     message.messageId(),
                     receiveCount,
                     maxReceiveCount,
-                    exception);
+                    exception
+            );
         }
     }
 
