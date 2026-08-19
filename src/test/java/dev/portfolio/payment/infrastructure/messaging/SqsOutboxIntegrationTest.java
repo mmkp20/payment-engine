@@ -1,10 +1,7 @@
 package dev.portfolio.payment.infrastructure.messaging;
 
 import dev.portfolio.payment.application.PaymentService;
-import dev.portfolio.payment.domain.IdempotencyKey;
-import dev.portfolio.payment.domain.Money;
-import dev.portfolio.payment.domain.OutboxStatus;
-import dev.portfolio.payment.domain.Payment;
+import dev.portfolio.payment.domain.*;
 import dev.portfolio.payment.infrastructure.persistence.OutboxEventEntity;
 import dev.portfolio.payment.infrastructure.persistence.SpringDataOutboxRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +21,10 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.CreateQueueRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
+import dev.portfolio.payment.application.PaymentProcessor;
+import dev.portfolio.payment.infrastructure.observability.PaymentMetrics;
+import tools.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 
 import java.math.BigDecimal;
 import java.util.Currency;
@@ -72,6 +73,18 @@ class SqsOutboxIntegrationTest {
     @Value("${app.sqs.queue-url}")
     private String queueUrl;
 
+    @Autowired
+    private PaymentRepository paymentRepository;
+
+    @Autowired
+    private PaymentProcessor paymentProcessor;
+
+    @Autowired
+    private PaymentMetrics paymentMetrics;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @BeforeEach
     void createQueue() {
         sqsClient.createQueue( CreateQueueRequest.builder()
@@ -105,5 +118,93 @@ class SqsOutboxIntegrationTest {
 
         assertThat(event.getStatus()).isEqualTo(OutboxStatus.PUBLISHED);
         assertThat(event.getPublishedAt()).isNotNull();
+
+        sqsClient.deleteMessage(DeleteMessageRequest.builder()
+                        .queueUrl(queueUrl)
+                        .receiptHandle(response.messages().get(0).receiptHandle())
+                        .build());
+    }
+
+    @Test
+    void paymentFlowsThroughOutboxAndSqsToSucceeded() {
+        Payment payment = paymentService.createPayment(
+                new IdempotencyKey("end-to-end-request"),
+                new Money(new BigDecimal("77.00"),
+                        Currency.getInstance("USD")));
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CREATED);
+
+        int publishedCount =outboxPublisher.publishPendingEvents();
+
+        assertThat(publishedCount).isEqualTo(1);
+
+        SqsPaymentEventConsumer consumer = new SqsPaymentEventConsumer(
+                        sqsClient,
+                        objectMapper,
+                        paymentProcessor,
+                        paymentMetrics,
+                        queueUrl,
+                        3);
+
+        consumer.pollMessages();
+
+        Payment processedPayment = paymentRepository.findById(payment.getId()).orElseThrow();
+
+        assertThat(processedPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+
+        OutboxEventEntity outboxEvent = outboxRepository
+                .findAllByAggregateId(payment.getId())
+                .get(0);
+
+        assertThat(outboxEvent.getStatus()).isEqualTo(OutboxStatus.PUBLISHED);
+
+        ReceiveMessageResponse remainingMessages = sqsClient.receiveMessage(ReceiveMessageRequest.builder()
+                                .queueUrl(queueUrl)
+                                .maxNumberOfMessages(10)
+                                .build());
+
+        assertThat(remainingMessages.messages()).isEmpty();
+    }
+
+    @Test
+    void duplicateRequestProducesSinglePaymentAndEvent() {
+        IdempotencyKey key = new IdempotencyKey("end-to-end-idempotency-request");
+
+        Money money = new Money( new BigDecimal("99.00"),
+                Currency.getInstance("USD"));
+
+        Payment firstPayment = paymentService.createPayment(key, money);
+        Payment duplicatePayment = paymentService.createPayment(key, money);
+
+        assertThat(duplicatePayment.getId()).isEqualTo(firstPayment.getId());
+        assertThat(outboxRepository.findAllByAggregateId(
+                        firstPayment.getId())).hasSize(1);
+
+        int publishedCount =outboxPublisher.publishPendingEvents();
+
+        assertThat(publishedCount).isEqualTo(1);
+
+        SqsPaymentEventConsumer consumer = new SqsPaymentEventConsumer(
+                        sqsClient,
+                        objectMapper,
+                        paymentProcessor,
+                        paymentMetrics,
+                        queueUrl,
+                        3);
+
+        consumer.pollMessages();
+
+        Payment processedPayment = paymentRepository
+                .findById(firstPayment.getId())
+                .orElseThrow();
+
+        assertThat(processedPayment.getStatus())
+                .isEqualTo(PaymentStatus.SUCCEEDED);
+
+        var outboxEvents = outboxRepository.findAllByAggregateId(
+                        firstPayment.getId());
+
+        assertThat(outboxEvents).hasSize(1);
+        assertThat(outboxEvents.get(0).getStatus()).isEqualTo(OutboxStatus.PUBLISHED);
     }
 }
