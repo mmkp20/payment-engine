@@ -82,9 +82,9 @@ A successfully processed payment is not processed again. This protects the syste
 - Backend: Java 17, Spring Boot 4.0.7, Spring Web MVC, Jakarta Bean Validation
 - Persistence: Spring Data JPA, PostgreSQL 17, Flyway
 - Messaging: AWS SDK for Java v2 (SQS), ElasticMQ 1.7.1
-- Observability: Spring Boot Actuator, Micrometer
-- Testing: JUnit 5, AssertJ, Mockito, Testcontainers
-- Build and DevOps: Maven, Docker Compose, GitHub Actions
+- Observability: Spring Boot Actuator
+- Testing: JUnit 5, AssertJ, Mockito
+- Build and DevOps: Maven, Docker, GitHub 
 
 ## Running Locally
 
