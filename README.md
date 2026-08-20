@@ -35,7 +35,7 @@ A payment is initially stored as CREATED. A transactional outbox event is then p
         Consumer --> Processor["Payment Processor"]
         Processor --> Payments
     
-        Queue -. "After maximum retries" .-> DLQ["Dead-Letter Queue"]
+        Queue -.->|After maximum retries| DLQ["Dead-Letter Queue"]
 
 ## Payment Lifecycle
     stateDiagram-v2
@@ -68,13 +68,10 @@ The outbox publisher later sends pending events to the queue and marks them as P
 
 Messages are deleted only after successful processing.
 
-Failed messages remain in the queue for retry.
-
-The consumer tracks the approximate receive count.
-
-After the maximum number of attempts, processing failures are marked FAILED.
-
-Messages that continue to fail are moved to the dead-letter queue.
+- Failed messages remain in the queue for retry.
+- The consumer tracks the approximate receive count.
+- After the maximum number of attempts, processing failures are marked FAILED.
+- Messages that continue to fail are moved to the dead-letter queue.
 
 ### Idempotent Consumer
 
